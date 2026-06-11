@@ -79,9 +79,9 @@
   - 硬件：WiFi（2.4G）
   - 目标：连上家里 WiFi，串口打印当前准确时间
 
-- [ ] **Demo 8 — 网页看摄像头实时画面**
-  - 学：板子当 Web 服务器，浏览器访问看 MJPEG 视频流
-  - 硬件：WiFi + 摄像头
+- [x] **Demo 8 — 网页看摄像头实时画面** ✅ 完成
+  - 学：`WebServer` 路由、MJPEG(multipart/x-mixed-replace) 视频流、摄像头+WiFi 合体、secrets.h 跨 demo 复用
+  - 硬件：WiFi + 摄像头（不用 SD 卡）
   - 目标：手机/电脑浏览器输入板子 IP，看到实时画面
 
 ### 阶段四：进阶 / 边缘 AI —— 这块板的终极玩法
@@ -109,6 +109,7 @@
 | 2026-06-10 | Demo 5 | ✅ 完成：PDM 麦克风音量条，实测 level 定 map 下限消底噪，说话/拍手条变长 |
 | 2026-06-11 | Demo 6 | ✅ 完成：OV2640 拍照，SD 卡硬件不通(0x107)，改 base64 串口 dump + recv_photo.py 还原，图像正常 |
 | 2026-06-11 | Demo 7 | ✅ 完成：连 WiFi(2.4G)+NTP 对时，每秒打印准确时间；密码隔离进 secrets.h(gitignore) |
+| 2026-06-11 | Demo 8 | ✅ 完成：板子当 Web 服务器，浏览器看 MJPEG 实时画面，流畅；复用 demo07 的 secrets.h |
 
 ---
 
@@ -132,3 +133,6 @@
 - **ESP32-S3 只支持 2.4G WiFi**，连不上先确认连的不是 5G 频段；`WiFi.begin` 后要轮询 `WiFi.status()`，记得加超时别死等。
 - **struct tm 的坑**：`tm_year` 从 1900 起算(要 +1900)、`tm_mon` 是 0~11(要 +1)，否则打出 0124 年。NTP `configTime` 是异步的，头几秒 `getLocalTime` 可能还没同步好，要容错。
 - **敏感信息隔离**：WiFi 密码等放进 `secrets.h`，在 .gitignore 里忽略 `secrets.h` / `src/**/secrets.h`，代码可公开、密码留本地。
+- **MJPEG 视频流原理**：其实就是不停发一张张 JPEG。响应头 `Content-Type: multipart/x-mixed-replace; boundary=frame`，然后循环发 `--frame` + 每帧的 `Content-Type/Content-Length` + JPEG 字节。boundary 名字前后要一致（头里 `frame`、循环里 `--frame`）。流循环里同样要 `esp_camera_fb_return` 否则内存爆。
+- **流模式摄像头参数**：`grab_mode=CAMERA_GRAB_LATEST`(取最新帧降延迟) + `fb_count=2`(双缓冲更顺)；分辨率先用 VGA，太大帧率掉。
+- **跨 demo 复用头文件**：platformio.ini 里用 `build_flags = -I src/demo07` 就能让 demo08 直接 `#include "secrets.h"`，密码只维护一份。
