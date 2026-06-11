@@ -7,3 +7,6 @@ photos/
 # 防止 WiFi 等敏感信息泄露：把密钥放进 secrets.h，不提交
 secrets.h
 src/**/secrets.h
+# Go 中转服务的密钥环境文件
+.env
+src/server/.env
