@@ -1,0 +1,9 @@
+.pio
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+photos/
+# 防止 WiFi 等敏感信息泄露：把密钥放进 secrets.h，不提交
+secrets.h
+src/**/secrets.h

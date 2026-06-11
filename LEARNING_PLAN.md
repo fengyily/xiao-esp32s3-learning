@@ -1,0 +1,130 @@
+# XIAO ESP32-S3 Sense 学习计划
+
+> 从 0 基础到边缘 AI，通过一个个能跑起来、看得见效果的 Demo 循序渐进。
+> 每完成一个 demo，把 `[ ]` 改成 `[x]` 打勾。
+
+---
+
+## 认识你的硬件
+
+**XIAO ESP32-S3 Sense** —— 指甲盖大小但功能很全：
+
+- **ESP32-S3 双核芯片** —— 算力强，支持 WiFi + 蓝牙(BLE)
+- **8MB PSRAM + 8MB Flash** —— 内存大，能跑 AI / 摄像头
+- **OV2640 摄像头** —— Sense 版本特有，能拍照、做图像识别
+- **数字麦克风 (PDM MIC)** —— 能录音、做语音
+- **SD 卡槽** —— 能存照片、录音、日志
+- **板载橙色 LED** —— 接在 **GPIO 21**，且是 **低电平点亮**（写 `LOW` 才亮，这是常见的坑）
+
+这块板子最大的价值是 **摄像头 + 麦克风 + AI**，学习路线最终会走向"边缘 AI"。
+
+---
+
+## 工具链速查
+
+| 操作 | 命令 |
+|---|---|
+| 编译 | `pio run` |
+| 烧录到板子 | `pio run -t upload` |
+| 看串口输出 | `pio device monitor` |
+| 编译+烧录+看串口 | `pio run -t upload -t monitor` |
+
+> 如果提示 `pio: command not found`，说明 PATH 没配。把这行加到 `~/.zshrc`：
+> `export PATH="$PATH:$HOME/.platformio/penv/bin"`
+
+---
+
+## 学习路线（10 个 Demo，4 个阶段）
+
+### 阶段一：基础 —— 跑通工具链，掌握输入输出
+
+- [x] **Demo 1 — Blink 闪灯** ✅ 完成
+  - 学：烧录流程、GPIO、`setup()`/`loop()` 结构、`pinMode` / `digitalWrite` / `delay`
+  - 硬件：板载 LED (GPIO 21，低电平点亮)
+  - 目标：LED 每秒闪一次
+
+- [x] **Demo 2 — 串口对话** ✅ 完成
+  - 学：`Serial.begin` / `Serial.println`，串口监视器 —— 以后最常用的调试工具
+  - 硬件：USB 串口
+  - 目标：板子每秒往电脑打印一行文字
+
+- [x] **Demo 3 — 按钮输入** ✅ 完成
+  - 学：`pinMode(INPUT_PULLUP)`、读引脚、按键消抖、下降沿检测
+  - 硬件：用金属短接 D1(GPIO2) ↔ GND 模拟按钮（手头无现成开关）
+  - 目标：按一下按钮，串口打印一次 / 切换 LED
+
+### 阶段二：传感与外设 —— 用上这块板的特色硬件
+
+- [x] **Demo 4 — PWM 呼吸灯** ✅ 完成
+  - 学：模拟输出、`ledcSetup`/`ledcAttachPin`/`ledcWrite`，占空比
+  - 硬件：板载 LED
+  - 目标：LED 由暗到亮再到暗，呼吸效果
+
+- [x] **Demo 5 — 读麦克风音量** ✅ 完成
+  - 学：I2S / PDM 数字麦克风采集（CLK=42, DATA=41），把音量画成串口音量条
+  - 硬件：板载麦克风
+  - 目标：对着板子说话，串口音量条跟着跳
+
+- [x] **Demo 6 — 摄像头拍照** ✅ 完成（走串口 dump 退路）
+  - 学：摄像头初始化(camera_config_t)、`esp_camera_fb_get`/`fb_return`、PSRAM、base64 串口传图
+  - 硬件：摄像头（SD 卡那一路硬件不通 0x107，改用串口 dump）
+  - 目标：按 D1↔GND 拍一张，base64 经串口传到电脑，`tools/recv_photo.py` 还原成 jpg
+  - 备注：原计划存 SD 卡，但板子 SD 接口超时(0x107)，换卡/换格式/降速/重插均无效；
+    用 base64 串口 dump 达成摄像头验证，图像正常。SD 卡硬件问题待查（Demo 8 网页看画面不依赖 SD）。
+
+### 阶段三：联网 —— 让板子上网
+
+- [ ] **Demo 7 — 连 WiFi + 获取网络时间**
+  - 学：`WiFi.begin`、连接状态、NTP 对时
+  - 硬件：WiFi
+  - 目标：连上家里 WiFi，串口打印当前准确时间
+
+- [ ] **Demo 8 — 网页看摄像头实时画面**
+  - 学：板子当 Web 服务器，浏览器访问看 MJPEG 视频流
+  - 硬件：WiFi + 摄像头
+  - 目标：手机/电脑浏览器输入板子 IP，看到实时画面
+
+### 阶段四：进阶 / 边缘 AI —— 这块板的终极玩法
+
+- [ ] **Demo 9 — 声控触发**
+  - 学：麦克风音量阈值检测，超过阈值触发动作
+  - 硬件：麦克风
+  - 目标：拍手/喊一声，LED 亮起或拍照
+
+- [ ] **Demo 10 — 边缘图像识别**
+  - 学：在板子上跑一个轻量模型（如 Edge Impulse / TensorFlow Lite Micro）做物体识别
+  - 硬件：摄像头 + AI
+  - 目标：摄像头对着物体，识别出是什么并打印结果
+
+---
+
+## 进度日志
+
+| 日期 | Demo | 备注 |
+|---|---|---|
+| 2026-06-10 | Demo 1 | ✅ 完成：编写 Blink，编译烧录成功，LED 每秒闪一次 |
+| 2026-06-10 | Demo 2 | ✅ 完成：串口每秒打印，LED 同步闪 |
+| 2026-06-10 | Demo 3 | ✅ 完成：D1↔GND 短接模拟按钮，消抖+下降沿正确，count 不乱跳，LED 翻转 |
+| 2026-06-10 | Demo 4 | ✅ 完成：LEDC PWM 呼吸灯，板载 LED 平滑呼吸 |
+| 2026-06-10 | Demo 5 | ✅ 完成：PDM 麦克风音量条，实测 level 定 map 下限消底噪，说话/拍手条变长 |
+| 2026-06-11 | Demo 6 | ✅ 完成：OV2640 拍照，SD 卡硬件不通(0x107)，改 base64 串口 dump + recv_photo.py 还原，图像正常 |
+
+---
+
+## 我学到的坑（随手记）
+
+- XIAO ESP32-S3 板载 LED 是**低电平点亮**：`digitalWrite(LED_BUILTIN, LOW)` 才是亮。
+- `HIGH` / `LOW` 是常量（值），不是函数；写引脚要用 `digitalWrite(引脚, HIGH/LOW)`。
+- `pio` 命令需要 PATH 里有 `~/.platformio/penv/bin`。
+- **按钮永远只短接 2 个点**：信号脚（如 D1）+ GND。碰到第 3 个点（电源/复位）会重启甚至伤板。
+- **背面 (B) 焊盘 = GPIO 0 = BOOT**，它下面那个无字焊盘不是 GND；碰它会让板子复位（串口从头打印、count 归零）。做按钮要用边缘明确标 `GND` 的脚。
+- **GPIO 0 有启动复用**：上电/复位瞬间被拉低会进烧录模式，所以做普通输入优先选别的脚（这里用了 D1=GPIO2）。
+- `pinMode(pin, INPUT_PULLUP)` 是给 `pinMode` 用的，不是 `digitalRead`；`digitalRead(pin)` 只传引脚号，且要用变量接住返回值。
+- 引脚名 `D0/D1/...` 板子已定义好（`D0=GPIO1, D1=GPIO2`），代码里直接写 `D1` 比写数字更清楚。
+- **ESP32 的 PWM 不用 `analogWrite`**，用 LEDC 三步：`ledcSetup(通道,频率,分辨率)` → `ledcAttachPin(引脚,通道)` → `ledcWrite(通道,duty)`。
+- **PWM 呼吸灯也踩低电平点亮的坑**：想越亮 duty 要越小，写 `255 - b` 才不会亮暗反向。
+- **PDM 麦克风引脚硬连死**：CLK=GPIO42, DATA=GPIO41，板载不用接线；`I2S.read()` 无"有效"标志，出错只返回 0。
+- **传感器映射先实测再定参数**：麦克风有底噪/直流偏置，安静时 `level` 不为 0。先 `Serial.println(level)` 看安静值和说话峰值，再用它们当 `map(level, 安静值, 峰值, 0, 30)` 的上下限，别套示例数字。
+- **摄像头要开 PSRAM**：platformio.ini 里 `-DBOARD_HAS_PSRAM` + `board_build.arduino.memory_type = qio_opi`，否则大帧缓冲挂掉；`esp_camera_fb_get()` 抓帧后必须 `esp_camera_fb_return()` 归还，否则连拍几张就内存爆。
+- **XIAO Sense SD 卡引脚非标准**：要 `SD_MMC.setPins(39,38,40)` + `begin("/sdcard", true)` 1-bit 模式；本机这块板 SD 接口超时 0x107（硬件接触问题，非软件/格式），暂时绕过。
+- **板子没法存文件时，可串口 dump**：把数据 base64 编码、用标记行 `---BEGIN---/---END---` 包起来打印，电脑端脚本(`tools/recv_photo.py`)解码还原。分块编码(每块 240 字节=3 的倍数)避免内存爆 + base64 错位。
