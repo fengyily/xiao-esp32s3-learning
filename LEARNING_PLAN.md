@@ -65,12 +65,12 @@
   - 硬件：板载麦克风
   - 目标：对着板子说话，串口音量条跟着跳
 
-- [x] **Demo 6 — 摄像头拍照** ✅ 完成（走串口 dump 退路）
-  - 学：摄像头初始化(camera_config_t)、`esp_camera_fb_get`/`fb_return`、PSRAM、base64 串口传图
-  - 硬件：摄像头（SD 卡那一路硬件不通 0x107，改用串口 dump）
-  - 目标：按 D1↔GND 拍一张，base64 经串口传到电脑，`tools/recv_photo.py` 还原成 jpg
-  - 备注：原计划存 SD 卡，但板子 SD 接口超时(0x107)，换卡/换格式/降速/重插均无效；
-    用 base64 串口 dump 达成摄像头验证，图像正常。SD 卡硬件问题待查（Demo 8 网页看画面不依赖 SD）。
+- [x] **Demo 6 — 摄像头拍照存 SD 卡** ✅ 完成（SPI 方式，真·达成原目标）
+  - 学：摄像头初始化(camera_config_t)、`esp_camera_fb_get`/`fb_return`、PSRAM、`SD.begin(CS)` SPI 存文件
+  - 硬件：摄像头 + SD 卡（SPI：默认 SCK=7/MISO=8/MOSI=9 + CS=21）
+  - 目标：按 D1↔GND 拍一张，UXGA(1600x1200) JPEG 存进 SD 卡，文件名递增 /pic_N.jpg
+  - 备注：最初用 SDMMC 挂载一直 0x107 超时，误判成硬件坏；后来 Demo 100 用 SPI 跑通，
+    证明是接口选错。已改回 SPI，连拍 4 张成功(~100KB/张)。另保留了 base64 串口 dump 版的思路(tools/recv_photo.py)。
 
 ### 阶段三：联网 —— 让板子上网
 
@@ -83,6 +83,14 @@
   - 学：`WebServer` 路由、MJPEG(multipart/x-mixed-replace) 视频流、摄像头+WiFi 合体、secrets.h 跨 demo 复用
   - 硬件：WiFi + 摄像头（不用 SD 卡）
   - 目标：手机/电脑浏览器输入板子 IP，看到实时画面
+
+### 附加：硬件排查 —— SD 卡那一路
+
+- [x] **Demo 100 — SD 卡加载测试** ✅ 完成（基于官方 SD 示例改写）
+  - 学：`fs::FS` 文件系统抽象、`SD.begin(CS)` SPI 挂载、`File` 读写/改名/删除、IO 跑分
+  - 硬件：Sense 板 SD 卡槽（CS=GPIO21，走 SPI；卡需 FAT32）
+  - 目标：串口打印卡类型/容量，跑一轮读写并测速；用来排查 Demo 6 卡住的 0x107
+  - 备注：这是 **SPI 方式**（`SD.h` + CS），跟 Demo 6 失败时用的 **SDMMC 方式**（`SD_MMC.setPins`）不是一条路，可对照看哪条通。
 
 ### 阶段四：进阶 / 边缘 AI —— 这块板的终极玩法
 
@@ -107,9 +115,10 @@
 | 2026-06-10 | Demo 3 | ✅ 完成：D1↔GND 短接模拟按钮，消抖+下降沿正确，count 不乱跳，LED 翻转 |
 | 2026-06-10 | Demo 4 | ✅ 完成：LEDC PWM 呼吸灯，板载 LED 平滑呼吸 |
 | 2026-06-10 | Demo 5 | ✅ 完成：PDM 麦克风音量条，实测 level 定 map 下限消底噪，说话/拍手条变长 |
-| 2026-06-11 | Demo 6 | ✅ 完成：OV2640 拍照，SD 卡硬件不通(0x107)，改 base64 串口 dump + recv_photo.py 还原，图像正常 |
+| 2026-06-11 | Demo 6 | ✅ 完成：OV2640 拍照；先 base64 串口 dump，后查明 0x107 是接口选错(应走 SPI)，改 SD.begin(21) SPI 存卡成功，连拍 4 张 ~100KB/张 |
 | 2026-06-11 | Demo 7 | ✅ 完成：连 WiFi(2.4G)+NTP 对时，每秒打印准确时间；密码隔离进 secrets.h(gitignore) |
 | 2026-06-11 | Demo 8 | ✅ 完成：板子当 Web 服务器，浏览器看 MJPEG 实时画面，流畅；复用 demo07 的 secrets.h |
+| 2026-06-11 | Demo 100 | ✅ 完成：SPI 方式 SD 卡(CS=21)挂载成功，读写测速通过(1MB 读 2398ms/写 2664ms)，借此查明 Demo 6 的 0x107 真因 |
 
 ---
 
@@ -128,7 +137,8 @@
 - **PDM 麦克风引脚硬连死**：CLK=GPIO42, DATA=GPIO41，板载不用接线；`I2S.read()` 无"有效"标志，出错只返回 0。
 - **传感器映射先实测再定参数**：麦克风有底噪/直流偏置，安静时 `level` 不为 0。先 `Serial.println(level)` 看安静值和说话峰值，再用它们当 `map(level, 安静值, 峰值, 0, 30)` 的上下限，别套示例数字。
 - **摄像头要开 PSRAM**：platformio.ini 里 `-DBOARD_HAS_PSRAM` + `board_build.arduino.memory_type = qio_opi`，否则大帧缓冲挂掉；`esp_camera_fb_get()` 抓帧后必须 `esp_camera_fb_return()` 归还，否则连拍几张就内存爆。
-- **XIAO Sense SD 卡引脚非标准**：要 `SD_MMC.setPins(39,38,40)` + `begin("/sdcard", true)` 1-bit 模式；本机这块板 SD 接口超时 0x107（硬件接触问题，非软件/格式），暂时绕过。
+- **⚠️【已更正】Demo 6 的 0x107 不是硬件问题，是接口选错**：当初用 SDMMC(`SD_MMC.setPins/begin`)挂不上一直超时 0x107，误判成"硬件接触不通"。后来 Demo 100 用 **SPI 方式 `SD.begin(21)` 成功**，证明卡和卡槽都好。真因：这块板 SD 卡该走 **SPI**(默认 SCK=7/MISO=8/MOSI=9 + CS=21)，不是 SDMMC。Demo 6 已改回 SPI 方式存卡成功。教训：挂载失败先怀疑**接口/引脚选型**，别急着下"硬件坏了"的结论。
+- **SD 卡有两条路**：`SD_MMC`（SDMMC 接口，Demo 6 用过，0x107 卡住）和 `SD.h`+`SD.begin(CS)`（SPI 接口，Demo 100 用，CS=GPIO21）。两条路底层不同，一条不通可换另一条试。SPI 方式更通用但更慢；`SD.begin()` 不传 CS 默认用 SS 脚，本板要显式传 21。
 - **板子没法存文件时，可串口 dump**：把数据 base64 编码、用标记行 `---BEGIN---/---END---` 包起来打印，电脑端脚本(`tools/recv_photo.py`)解码还原。分块编码(每块 240 字节=3 的倍数)避免内存爆 + base64 错位。
 - **ESP32-S3 只支持 2.4G WiFi**，连不上先确认连的不是 5G 频段；`WiFi.begin` 后要轮询 `WiFi.status()`，记得加超时别死等。
 - **struct tm 的坑**：`tm_year` 从 1900 起算(要 +1900)、`tm_mon` 是 0~11(要 +1)，否则打出 0124 年。NTP `configTime` 是异步的，头几秒 `getLocalTime` 可能还没同步好，要容错。

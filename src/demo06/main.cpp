@@ -1,20 +1,27 @@
-// Demo 6 — 摄像头拍照（串口 dump 版）
-// 目标：按一下按钮(D1↔GND)拍一张照片，把 JPEG 经 base64 打印到串口，
-//       电脑端用脚本(tools/recv_photo.py)还原成 .jpg 查看。
-// 知识点：摄像头初始化(camera_config_t)、esp_camera_fb_get 抓帧、base64、PSRAM
+// Demo 6 — 摄像头拍照存 SD 卡（SPI 方式）
+// 目标：按一下按钮(D1↔GND)拍一张照片，存进 SD 卡，文件名递增 /pic_1.jpg、/pic_2.jpg ...
+// 知识点：摄像头初始化(camera_config_t)、esp_camera_fb_get 抓帧、SD(SPI) 写文件、PSRAM
 //
-// 背景：这块板子 SD 卡那一路物理接触不通(0x107 超时)，所以不走 SD，改串口 dump。
-//       Demo 8(网页看摄像头)本来也不用 SD，不影响后续学习。
+// 关于 SD 卡（重要更正）：
+//   最初本 Demo 用 SDMMC 接口(SD_MMC.setPins/begin)挂载，一直 0x107 超时。
+//   后来 Demo 100 用 SPI 方式(SD.begin(CS=21))成功 → 证明卡和硬件都好，
+//   是当初用错了接口/引脚。本版改用 Demo 100 验证过的 SPI 方式。
+//   SPI 默认引脚 SCK=7/MISO=8/MOSI=9，CS=21（=板载 LED，挂载时灯会闪，正常）。
 //
 // 硬件前提：
 //   1. Sense 扩展板装好、摄像头排线(FPC)插紧
-//   2. 按钮：金属短接 D1(GPIO2) ↔ GND（沿用 Demo 3 的接法）
+//   2. 插一张 FAT32 的 SD 卡
+//   3. 按钮：金属短接 D1(GPIO2) ↔ GND（沿用 Demo 3 的接法）
 //
 // platformio.ini 里 demo06 已开 PSRAM（-DBOARD_HAS_PSRAM + qio_opi），摄像头帧缓冲要用它。
 
 #include <Arduino.h>
 #include "esp_camera.h"
-#include "base64.h"
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+
+#define SD_CS_PIN 21               // Sense 板 SD 卡片选（走 SPI），和 Demo 100 一致
 
 // ---------- XIAO ESP32-S3 Sense 摄像头引脚（官方定义，勿改）----------
 #define PWDN_GPIO_NUM   -1
@@ -65,7 +72,7 @@ bool initCamera() {
   config.pin_pwdn     = PWDN_GPIO_NUM;
   config.pin_reset    = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;             // 20MHz 主时钟
-  config.frame_size   = FRAMESIZE_SVGA;       // 800x600：串口 dump 用，体积小传输快
+  config.frame_size   = FRAMESIZE_UXGA;       // 1600x1200：存卡不怕大，画质高
   config.pixel_format = PIXFORMAT_JPEG;       // 直接出 JPEG，省内存、方便存文件
   config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location  = CAMERA_FB_IN_PSRAM;   // 帧缓冲放 PSRAM
@@ -80,11 +87,7 @@ bool initCamera() {
   return true;
 }
 
-// ---------- 拍一张并经串口 dump 出去 ----------
-// 输出格式（电脑端脚本靠这几行标记来识别）：
-//   ---PHOTO-BEGIN--- <序号> <字节数>
-//   <base64 数据，多行，每行 360 字符>
-//   ---PHOTO-END---
+// ---------- 拍一张并存到 SD 卡（SPI）----------
 void takePhoto() {
   // 丢掉前几帧（刚触发时曝光可能没稳，第一帧偏暗/发绿）
   for (int i = 0; i < 3; i++) {
@@ -99,18 +102,18 @@ void takePhoto() {
   }
 
   picIndex++;
-  Serial.printf("---PHOTO-BEGIN--- %d %u\n", picIndex, fb->len);
+  String path = "/pic_" + String(picIndex) + ".jpg";
 
-  // 分块 base64 编码：每次取 240 字节原始数据(=320 个 base64 字符，整除避免错位)，
-  // 整张一次性编码会吃太多内存。240 是 3 的倍数，保证每块独立编码不串位。
-  const size_t CHUNK = 240;
-  for (size_t off = 0; off < fb->len; off += CHUNK) {
-    size_t n = (fb->len - off < CHUNK) ? (fb->len - off) : CHUNK;
-    Serial.println(base64::encode(fb->buf + off, n));
+  File file = SD.open(path.c_str(), FILE_WRITE);
+  if (!file) {
+    Serial.printf("打开文件失败: %s\n", path.c_str());
+    esp_camera_fb_return(fb);                 // 出错也要归还
+    return;
   }
 
-  Serial.println("---PHOTO-END---");
-  Serial.printf("完成：第 %d 张，JPEG %u 字节\n", picIndex, fb->len);
+  file.write(fb->buf, fb->len);               // fb->buf=JPEG字节, fb->len=长度
+  file.close();
+  Serial.printf("已保存 %s, 大小 %u 字节\n", path.c_str(), fb->len);
 
   esp_camera_fb_return(fb);                   // 关键：归还帧缓冲
 }
@@ -118,7 +121,7 @@ void takePhoto() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("=== Demo 6: 摄像头拍照（串口 dump 版）===");
+  Serial.println("=== Demo 6: 摄像头拍照存 SD 卡（SPI 方式）===");
 
   pinMode(BTN_PIN, INPUT_PULLUP);
 
@@ -128,7 +131,18 @@ void setup() {
   }
   Serial.println("摄像头 OK");
 
-  Serial.println("准备就绪：短接 D1↔GND 拍一张照片（用 tools/recv_photo.py 接收）");
+  // SPI 方式挂载 SD 卡（CS=21），和 Demo 100 验证过的一致
+  if (!SD.begin(SD_CS_PIN)) {
+    Serial.println("SD 挂载失败：检查卡是否插好/是否 FAT32。停止。");
+    while (true) delay(1000);
+  }
+  if (SD.cardType() == CARD_NONE) {
+    Serial.println("没检测到 SD 卡。停止。");
+    while (true) delay(1000);
+  }
+  Serial.printf("SD 卡 OK，容量 %lluMB\n", SD.cardSize() / (1024 * 1024));
+
+  Serial.println("准备就绪：短接 D1↔GND 拍一张照片，存到 SD 卡");
 }
 
 void loop() {
