@@ -74,9 +74,9 @@
 
 ### 阶段三：联网 —— 让板子上网
 
-- [ ] **Demo 7 — 连 WiFi + 获取网络时间**
-  - 学：`WiFi.begin`、连接状态、NTP 对时
-  - 硬件：WiFi
+- [x] **Demo 7 — 连 WiFi + 获取网络时间** ✅ 完成
+  - 学：`WiFi.begin`/`WiFi.status` 轮询、`configTime` NTP 对时、`getLocalTime`+struct tm、secrets.h 隔离密码
+  - 硬件：WiFi（2.4G）
   - 目标：连上家里 WiFi，串口打印当前准确时间
 
 - [ ] **Demo 8 — 网页看摄像头实时画面**
@@ -108,6 +108,7 @@
 | 2026-06-10 | Demo 4 | ✅ 完成：LEDC PWM 呼吸灯，板载 LED 平滑呼吸 |
 | 2026-06-10 | Demo 5 | ✅ 完成：PDM 麦克风音量条，实测 level 定 map 下限消底噪，说话/拍手条变长 |
 | 2026-06-11 | Demo 6 | ✅ 完成：OV2640 拍照，SD 卡硬件不通(0x107)，改 base64 串口 dump + recv_photo.py 还原，图像正常 |
+| 2026-06-11 | Demo 7 | ✅ 完成：连 WiFi(2.4G)+NTP 对时，每秒打印准确时间；密码隔离进 secrets.h(gitignore) |
 
 ---
 
@@ -128,3 +129,6 @@
 - **摄像头要开 PSRAM**：platformio.ini 里 `-DBOARD_HAS_PSRAM` + `board_build.arduino.memory_type = qio_opi`，否则大帧缓冲挂掉；`esp_camera_fb_get()` 抓帧后必须 `esp_camera_fb_return()` 归还，否则连拍几张就内存爆。
 - **XIAO Sense SD 卡引脚非标准**：要 `SD_MMC.setPins(39,38,40)` + `begin("/sdcard", true)` 1-bit 模式；本机这块板 SD 接口超时 0x107（硬件接触问题，非软件/格式），暂时绕过。
 - **板子没法存文件时，可串口 dump**：把数据 base64 编码、用标记行 `---BEGIN---/---END---` 包起来打印，电脑端脚本(`tools/recv_photo.py`)解码还原。分块编码(每块 240 字节=3 的倍数)避免内存爆 + base64 错位。
+- **ESP32-S3 只支持 2.4G WiFi**，连不上先确认连的不是 5G 频段；`WiFi.begin` 后要轮询 `WiFi.status()`，记得加超时别死等。
+- **struct tm 的坑**：`tm_year` 从 1900 起算(要 +1900)、`tm_mon` 是 0~11(要 +1)，否则打出 0124 年。NTP `configTime` 是异步的，头几秒 `getLocalTime` 可能还没同步好，要容错。
+- **敏感信息隔离**：WiFi 密码等放进 `secrets.h`，在 .gitignore 里忽略 `secrets.h` / `src/**/secrets.h`，代码可公开、密码留本地。
