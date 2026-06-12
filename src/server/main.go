@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,23 @@ func main() {
 	// 健康检查：板子/浏览器可先访问这个确认能连通
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
+	})
+
+	// /chat_text：调试用，直接传文本对话（带会话上下文），不走录音。
+	//   GET /chat_text?text=你好
+	mux.HandleFunc("/chat_text", func(w http.ResponseWriter, r *http.Request) {
+		text := r.URL.Query().Get("text")
+		if text == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "缺 text 参数"})
+			return
+		}
+		reply, err := ds.Chat(text)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Printf("[chat_text] %q -> %q", text, reply)
+		writeJSON(w, http.StatusOK, map[string]string{"text": text, "reply": reply})
 	})
 
 	// /asr：请求体是原始 PCM 音频字节，返回 {"text":"识别结果"}
@@ -142,6 +160,58 @@ func main() {
 		}
 		log.Printf("译文(%s, %.1fs): %q", target, time.Since(start).Seconds(), trans)
 		writeJSON(w, http.StatusOK, map[string]string{"text": text, "translation": trans})
+	})
+
+	// /translate_stream：识别 → DeepSeek 流式翻译，边译边吐给板子（打字机效果）。
+	// 行协议：T:原文\n  然后多行 D:译文增量\n  最后 E\n
+	mux.HandleFunc("/translate_stream", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "use POST", http.StatusMethodNotAllowed)
+			return
+		}
+		pcm, err := io.ReadAll(r.Body)
+		if err != nil || len(pcm) == 0 {
+			http.Error(w, "音频为空", http.StatusBadRequest)
+			return
+		}
+		pcm = resampleFromRequest(r, pcm)
+
+		text, err := asr.Recognize(pcm)
+		if err != nil {
+			http.Error(w, "识别失败: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		log.Printf("[stream] 识别: %q", text)
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		flusher, _ := w.(http.Flusher)
+		writeLine := func(s string) {
+			w.Write([]byte(s))
+			if flusher != nil {
+				flusher.Flush() // 立刻发出去，不攒缓冲
+			}
+		}
+
+		writeLine("T:" + text + "\n")
+		if text == "" {
+			writeLine("E\n")
+			return
+		}
+
+		// 翻译方向（复用 translate.go 的判断），流式输出
+		sys := "你是翻译引擎。把用户输入翻译成地道自然的英文。只输出英文译文，不要解释、引号、拼音。"
+		if !hasChinese(text) {
+			sys = "你是翻译引擎。把用户输入翻译成地道自然的简体中文。只输出中文译文，不要解释、引号。"
+		}
+		err = ds.streamWithSystem(sys, text, func(delta string) {
+			// 增量里可能含换行，替换掉以免破坏行协议
+			delta = strings.ReplaceAll(delta, "\n", " ")
+			writeLine("D:" + delta + "\n")
+		})
+		if err != nil {
+			writeLine("D:[翻译出错]\n")
+		}
+		writeLine("E\n")
 	})
 
 	log.Printf("中转服务启动，监听 %s（POST 音频到 /asr）", cfg.Addr)

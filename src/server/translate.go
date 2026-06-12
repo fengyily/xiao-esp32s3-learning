@@ -20,15 +20,17 @@ func hasChinese(s string) bool {
 func (d *DeepSeek) Translate(text string) (string, string, error) {
 	toEnglish := hasChinese(text)
 	var sys, targetName string
+	// 翻译【不带会话历史】，每句独立翻。
+	// 之前带历史会在连续叙事(如朗读小说)里让模型搞混"当前句"，导致译文错位。
 	if toEnglish {
-		sys = "你是翻译引擎。把用户输入翻译成地道、自然的英文。只输出英文译文本身，不要任何解释、不要引号、不要拼音。"
+		sys = "你是翻译引擎。把用户输入翻译成地道自然的英文。只输出英文译文本身，不要任何解释、引号、拼音。"
 		targetName = "英文"
 	} else {
-		sys = "你是翻译引擎。把用户输入翻译成地道、自然的简体中文。只输出中文译文本身，不要任何解释、不要引号。"
+		sys = "你是翻译引擎。把用户输入翻译成地道自然的简体中文。只输出中文译文本身，不要任何解释、引号。"
 		targetName = "中文"
 	}
 
-	reply, err := d.chatWithSystem(sys, text)
+	reply, err := d.chatWithSystem(sys, text)   // 单句，无历史
 	if err != nil {
 		return "", targetName, fmt.Errorf("翻译失败: %w", err)
 	}

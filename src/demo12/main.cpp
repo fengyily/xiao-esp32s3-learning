@@ -24,8 +24,12 @@
 #define MIC_DATA  41               // PDM 数据
 #define SAMPLE_RATE  16000         // 原生 PDM 正确出 16kHz（不再需要 Go 重采样）
 #define I2S_PORT  I2S_NUM_0
-#define RECORD_SECONDS 5           // 给说话留足时间
-#define PCM_BYTES  (SAMPLE_RATE * 2 * RECORD_SECONDS)
+// VAD 自动断句：说话时录，静音超过阈值就结束（不再固定时长）
+#define MAX_RECORD_SECONDS 10                // 最长兜底，防背景音停不下来
+#define PCM_BYTES  (SAMPLE_RATE * 2 * MAX_RECORD_SECONDS)   // 缓冲按最长算
+#define SILENCE_END_MS 1200                  // 静音超过 1.2 秒 → 说完了
+#define MIN_RECORD_MS  1000                  // 至少录 1 秒（防开口短停顿误切）
+#define VAD_LEVEL      400                   // 判"有声/静音"的音量线（低于=静音）
 
 // 声控触发：监听音量，超过阈值就开始录音（不用按钮，D1/GPIO2 已损坏弃用）
 const int VOICE_THRESHOLD = 1500;           // 触发阈值（实测说话约1360；偶尔空录无害，会回"请再说一次"）
@@ -122,14 +126,36 @@ size_t recordAudio() {
     got = prerollLen;
   }
 
+  // VAD 自动断句：边录边判音量，静音累计够久就停（说完即止）
   unsigned long startMs = millis();
-  const unsigned long TIMEOUT_MS = (RECORD_SECONDS + 2) * 1000UL;
+  unsigned long lastVoiceMs = startMs;          // 最近一次"听到声音"的时刻
+  const size_t CHUNK = 2048;                    // 每块约 64ms（2048字节/32000字节每秒）
   while (got < PCM_BYTES) {
     size_t br = 0;
-    i2s_read(I2S_PORT, recordBuf + got, PCM_BYTES - got, &br, pdMS_TO_TICKS(500));
-    got += br;
-    if (millis() - startMs > TIMEOUT_MS) {
-      Serial.println("（录音超时，用已录到的部分）");
+    size_t want = PCM_BYTES - got;
+    if (want > CHUNK) want = CHUNK;
+    i2s_read(I2S_PORT, recordBuf + got, want, &br, pdMS_TO_TICKS(500));
+
+    // 算这一块的平均音量
+    if (br > 0) {
+      int16_t* blk = (int16_t*)(recordBuf + got);
+      size_t bn = br / 2;
+      long sum = 0;
+      for (size_t i = 0; i < bn; i++) sum += abs(blk[i]);
+      int lvl = bn ? (int)(sum / bn) : 0;
+      if (lvl > VAD_LEVEL) lastVoiceMs = millis();   // 有声，刷新
+      got += br;
+    }
+
+    unsigned long now = millis();
+    // 录够最短时长后，若静音持续超过阈值 → 说完了
+    if (now - startMs > MIN_RECORD_MS && now - lastVoiceMs > SILENCE_END_MS) {
+      Serial.printf("（检测到停顿 %dms，结束录音）\n", SILENCE_END_MS);
+      break;
+    }
+    // 兜底：最长时长到了也停
+    if (now - startMs > MAX_RECORD_SECONDS * 1000UL) {
+      Serial.println("（达到最长录音时长，结束）");
       break;
     }
   }
