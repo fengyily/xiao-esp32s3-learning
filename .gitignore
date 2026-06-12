@@ -10,3 +10,9 @@ src/**/secrets.h
 # Go 中转服务的密钥环境文件
 .env
 src/server/.env
+# Go 服务保存的录音(检查音质用，不上传)
+src/server/recordings/
+
+# 临时调试音频
+*.mp3
+listen_rec*.mp3

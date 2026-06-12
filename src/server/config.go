@@ -13,6 +13,9 @@ type Config struct {
 	AppKey          string // 智能语音交互项目的 Appkey
 	Region          string // 如 cn-shanghai
 	Addr            string // 服务监听地址，如 :8080
+
+	DeepSeekKey   string // DeepSeek API Key
+	DeepSeekModel string // 模型名，默认 deepseek-chat
 }
 
 // loadConfig 读取环境变量，缺关键项就直接退出（fail fast）。
@@ -23,6 +26,8 @@ func loadConfig() Config {
 		AppKey:          os.Getenv("ALIYUN_APPKEY"),
 		Region:          getenvDefault("ALIYUN_REGION", "cn-shanghai"),
 		Addr:            getenvDefault("LISTEN_ADDR", ":8080"),
+		DeepSeekKey:     os.Getenv("DEEPSEEK_API_KEY"),
+		DeepSeekModel:   getenvDefault("DEEPSEEK_MODEL", "deepseek-chat"),
 	}
 
 	missing := ""

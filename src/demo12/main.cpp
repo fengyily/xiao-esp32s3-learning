@@ -1,4 +1,6 @@
-// Demo 11 — 语音转文字（录音 → 上传 → 识别）
+// Demo 12 — 实时中英互译（声控录音 → 识别 → 翻译 → 打印译文）
+// 说中文出英文、说英文出中文（Go 端自动判方向）。后续接喇叭可语音播报。
+// 板子端与 Demo 11 几乎相同，只是上传到 /translate、解析 translation 字段。
 // 目标：按一下 D1↔GND → 录 3 秒 → POST 给 Go 中转服务 → 串口打印识别出的文字
 // 知识点：I2S 批量录音到 PSRAM、HTTPClient POST 二进制、解析 JSON 响应
 //
@@ -27,7 +29,7 @@
 
 // 声控触发：监听音量，超过阈值就开始录音（不用按钮，D1/GPIO2 已损坏弃用）
 const int VOICE_THRESHOLD = 1500;           // 触发阈值（实测说话约1360；偶尔空录无害，会回"请再说一次"）
-const unsigned long COOLDOWN_MS = 4000;     // 触发后冷却，避免回答余音/连续触发
+const unsigned long COOLDOWN_MS = 1000;     // 翻译场景：1 秒，连续翻译跟手（无喇叭不怕自触发）
 unsigned long lastTrigger = 0;
 
 uint8_t* recordBuf = nullptr;      // PSRAM 里的录音缓冲
@@ -184,10 +186,11 @@ bool hasSpeech(size_t pcmLen) {
   return range > 1500;
 }
 
-// 把 PCM POST 给 Go 服务的 /chat，解析识别文字 + DeepSeek 回答
-void uploadAndChat(size_t pcmLen) {
-  // 原生 PDM 已正确出 16kHz，直接上传，无需重采样
+// 把 PCM POST 给 Go 服务的 /translate，解析原文 + 译文
+void uploadAndTranslate(size_t pcmLen) {
+  // 原生 PDM 已正确出 16kHz，直接上传。SERVER_URL 是 /chat，这里换成 /translate
   String url = String(SERVER_URL);
+  url.replace("/chat", "/translate");
   Serial.printf("上传到 %s ...\n", url.c_str());
 
   // 最多试 3 次：HTTP -1 多是 WiFi/连接瞬时抖动，重试通常能成
@@ -199,12 +202,12 @@ void uploadAndChat(size_t pcmLen) {
     int code = http.POST(recordBuf, pcmLen);
 
     if (code == 200) {
-      String resp = http.getString();       // 期望 {"text":"...","reply":"..."}
+      String resp = http.getString();       // 期望 {"text":"...","translation":"..."}
       Serial.println("服务返回: " + resp);
       String youSaid = extractField(resp, "text");
-      String reply   = extractField(resp, "reply");
-      if (youSaid.length()) Serial.println("====> 你说: " + youSaid);
-      if (reply.length())   Serial.println("====> 助手: " + reply);
+      String trans   = extractField(resp, "translation");
+      if (youSaid.length()) Serial.println("====> 原文: " + youSaid);
+      if (trans.length())   Serial.println("====> 译文: " + trans);
       http.end();
       return;                               // 成功，结束
     }
@@ -219,7 +222,7 @@ void uploadAndChat(size_t pcmLen) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("=== Demo 11: 语音对话（声控触发 + 识别 + DeepSeek）===");
+  Serial.println("=== Demo 12: 实时中英互译（说话→翻译→打印）===");
 
   // PSRAM 申请录音缓冲
   recordBuf = (uint8_t*) ps_malloc(PCM_BYTES);
@@ -245,7 +248,7 @@ void loop() {
     size_t n = recordAudio();
     // 本地先判断有没有真说话，没有就不上传，省一次请求
     if (hasSpeech(n)) {
-      uploadAndChat(n);
+      uploadAndTranslate(n);
     } else {
       Serial.println("没检测到有效语音，跳过上传。");
     }
