@@ -101,7 +101,15 @@
 - **B6. 流式翻译** — ✅ 已完成（Demo 14 + Go `/translate_stream`）。
   - DeepSeek `stream:true`，Go 用 SSE 解析、行协议(T:原文 / D:译文增量 / E)流式转发，板子边收边打字机式显示。
   - 坑：板子流式读响应不能用 `readStringUntil`（分包会读半行），改逐字节累积遇 \n 才成行。
-  - 现状：识别仍是整句（说完一段才识别），翻译是流式。真"边说边识别"需换实时 ASR(未做)。
+  - 现状：识别仍是整句（说完一段才识别），翻译是流式。真"边说边识别"在 B7 用实时 ASR 实现。
+- **B7. 流式实时识别（真·边说边识别）** — ✅ 已完成（Demo 15 + Go `/translate_ws` + `aliyun_stream.go`）。
+  - 换 ASR：从"一句话识别"(HTTP POST 整段) 换成**阿里云【实时语音识别】(WebSocket)**。
+    板子 chunked 持续上传 PCM → Go 转推阿里云 WS → 阿里云**自动语义断句**(SentenceEnd 事件) → 每句即翻译。
+  - 关键收益：断句权交给专业 ASR，**不再把单词切碎**（Demo 14 固定切片会切出 "Today is reall"），延时低，说完一句~0.7-1.3s 出译文。
+  - 断句灵敏度旋钮：阿里云 `max_sentence_silence`（毫秒，200~2000）。800ms 太大→连贯朗读几十秒不断句；**400ms** 实测刚好（换气/逗号处切开）。
+  - 坑①（崩溃）：**ESP32 的 WiFiClient/lwIP 不是线程安全**，两任务同时读写一个 socket 崩 `pbuf_free p->ref>0`。改**单任务全双工**（同一任务录一块→发一块→非阻塞 drainResponse 读译文），socket 独占。
+  - 坑②：流式上传用**裸 WiFiClient 手写 HTTP**（`Transfer-Encoding: chunked`），HTTPClient 对 chunked 上传支持有限；Go net/http 服务端自动 de-chunk，`r.Body.Read` 拿到裸 PCM。
+  - 实现：Go `/translate_ws` 三段流水线——板子 body 流 → audioCh → WS 推流；SentenceEnd → 串行 writer → DeepSeek 流式翻译 → T:/D:/E 写回（串行保证多句顺序输出、不并发写 response）。
 
 ### 阶段 C：把"语音回应"补上（需要喇叭到货 MAX98357A）
 

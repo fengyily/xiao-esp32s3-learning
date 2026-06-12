@@ -214,6 +214,97 @@ func main() {
 		writeLine("E\n")
 	})
 
+	// /translate_ws：板子用裸 WiFiClient 持续 POST PCM（不切片，连接保持打开）。
+	//   Go 把音频流转推阿里云【实时识别】WS，由阿里云自动语义断句；
+	//   每收到一句完整文字(SentenceEnd) → DeepSeek 流式翻译 → 立刻写回板子。
+	//   行协议同 /translate_stream：T:原文\n  多行 D:译文增量\n  每句末 E\n
+	//
+	// 这是 Demo 15 的核心：用专业流式 ASR 在【语义停顿】处断句，
+	// 取代固定时长切片(会把单词切碎)，延时低且不丢字。
+	mux.HandleFunc("/translate_ws", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "use POST", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		flusher, _ := w.(http.Flusher)
+
+		// 串行写回板子：阿里云断句回调可能并发触发翻译，统一交给一个 writer 顺序处理，
+		// 既不阻塞音频推流，也避免多 goroutine 同时写 response。
+		type sentence struct{ text string }
+		sentCh := make(chan sentence, 16)
+
+		// 把板子上传的 body 流切成块喂给 WS 推流协程
+		audioCh := make(chan []byte, 32)
+		go func() {
+			defer close(audioCh)
+			buf := make([]byte, 3200) // 16k/16bit -> 100ms 一块
+			for {
+				n, err := r.Body.Read(buf)
+				if n > 0 {
+					chunk := make([]byte, n)
+					copy(chunk, buf[:n])
+					audioCh <- chunk
+				}
+				if err != nil {
+					return // 板子断开上传 = 音频结束
+				}
+			}
+		}()
+
+		// 翻译+写回协程（串行，顺序输出）
+		writeDone := make(chan struct{})
+		go func() {
+			defer close(writeDone)
+			writeLine := func(s string) {
+				w.Write([]byte(s))
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			for s := range sentCh {
+				text := s.text
+				writeLine("T:" + text + "\n")
+
+				sys := "你是翻译引擎。把用户输入翻译成地道自然的英文。只输出英文译文，不要解释、引号、拼音。"
+				if !hasChinese(text) {
+					sys = "你是翻译引擎。把用户输入翻译成地道自然的简体中文。只输出中文译文，不要解释、引号。"
+				}
+				tStart := time.Now()
+				firstDelta := time.Duration(-1)
+				err := ds.streamWithSystem(sys, text, func(delta string) {
+					if firstDelta < 0 {
+						firstDelta = time.Since(tStart)
+					}
+					delta = strings.ReplaceAll(delta, "\n", " ")
+					writeLine("D:" + delta + "\n")
+				})
+				if err != nil {
+					writeLine("D:[翻译出错]\n")
+				}
+				writeLine("E\n")
+				log.Printf("[ws] 句子 %q | 翻译首字 %dms 整句 %dms",
+					text, firstDelta.Milliseconds(), time.Since(tStart).Milliseconds())
+			}
+		}()
+
+		// 阻塞跑识别：SentenceEnd 时把整句丢进 sentCh
+		err := asr.StreamRecognize(audioCh, StreamCallback{
+			onSentenceEnd: func(text string) {
+				select {
+				case sentCh <- sentence{text}:
+				default:
+					log.Printf("[ws] 句子队列满，丢弃: %q", text)
+				}
+			},
+		})
+		close(sentCh)
+		<-writeDone // 等最后一句翻完写完
+		if err != nil {
+			log.Printf("[ws] 识别结束(带错误): %v", err)
+		}
+	})
+
 	log.Printf("中转服务启动，监听 %s（POST 音频到 /asr）", cfg.Addr)
 	if err := http.ListenAndServe(cfg.Addr, mux); err != nil {
 		log.Fatal(err)

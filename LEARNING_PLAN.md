@@ -124,6 +124,7 @@
 | 2026-06-12 | Demo 12 | ✅ 完成：实时中英互译，说话→识别→DeepSeek 翻译→打印译文(后续接喇叭播报) |
 | 2026-06-12 | Demo 13 | ✅ 完成：全双工对话，FreeRTOS 双任务边听边处理(半句不丢)+会话上下文记忆 |
 | 2026-06-12 | Demo 14 | ✅ 完成：全双工流式翻译，双任务+DeepSeek 流式输出(译文打字机式)，一句一译 |
+| 2026-06-12 | Demo 15 | ✅ 完成：流式实时翻译。板子 chunked 持续上传 PCM→Go 转推阿里云【实时识别】WS→自动语义断句(SentenceEnd)→DeepSeek 流式翻译。断句权交给专业 ASR(不切碎单词)，说完一句~0.7-1.3s 出译文；max_sentence_silence=400ms |
 
 ---
 
@@ -151,3 +152,9 @@
 - **MJPEG 视频流原理**：其实就是不停发一张张 JPEG。响应头 `Content-Type: multipart/x-mixed-replace; boundary=frame`，然后循环发 `--frame` + 每帧的 `Content-Type/Content-Length` + JPEG 字节。boundary 名字前后要一致（头里 `frame`、循环里 `--frame`）。流循环里同样要 `esp_camera_fb_return` 否则内存爆。
 - **流模式摄像头参数**：`grab_mode=CAMERA_GRAB_LATEST`(取最新帧降延迟) + `fb_count=2`(双缓冲更顺)；分辨率先用 VGA，太大帧率掉。
 - **跨 demo 复用头文件**：platformio.ini 里用 `build_flags = -I src/demo07` 就能让 demo08 直接 `#include "secrets.h"`，密码只维护一份。
+- **⚠️ ESP32 的 WiFiClient/lwIP 不是线程安全**：同一个 socket 不能在两个任务/两个核心里同时读写，否则 pbuf 引用计数错乱，崩 `assert failed: pbuf_free ... p->ref > 0`。Demo 15 一开始让"上传任务"写、"读响应任务"读同一 socket 就这么崩的。修法：**单任务全双工**——同一个任务里既写音频又非阻塞读响应(录一块→发一块→drainResponse 把已到的读出来)，socket 只被一个任务摸。
+- **固定时长切片会切碎单词，专业流式 ASR 才能在语义停顿处断句**：Demo 14 用板子 VAD 固定切片，连贯朗读会切在词中间("Today is reall")。Demo 15 改用阿里云【实时识别】(WebSocket)，由它自动断句(SentenceEnd 事件)，不切碎词、延时低。
+- **阿里云实时识别的断句灵敏度 = `max_sentence_silence`(毫秒,范围 200~2000)**：句末静音超过这个值才判一句结束。800ms 偏大——连贯朗读(句间停顿<800ms)会几十秒不断句，整段才翻一次，流式优势全没。降到 **400ms** 后能在换气/逗号处切开，说完一句~1s 出译文。太小则会把一句话切碎，按语速实测取值。
+- **流式上传用裸 `WiFiClient` 手写 HTTP**：HTTPClient 对 chunked 流式上传支持有限。直接 `WiFiClient.connect` 后手写请求行+头(`Transfer-Encoding: chunked`)，再持续 `write` 每块(`%X\r\n`+数据+`\r\n`)，结束发 `0\r\n\r\n`。Go 的 net/http 服务端会自动 de-chunk，`r.Body.Read` 拿到的就是裸 PCM。
+- **macOS 没有 `timeout` / `setsid` 命令**；后台跑服务用工具的 run_in_background 或 `nohup ... &`(注意普通 Bash 调用结束会回收子进程，要真正 detached)。
+- **耗时统计的"识别 +Nms"含说话本身时长**：从开口算起的绝对时间里，大头是"说这句话花的时间"，不是延时。真正的延时看"说完一句→译文出完"，即日志里的 `整句译文 +Nms`(~0.7-1.3s)。

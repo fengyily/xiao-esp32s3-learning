@@ -16,3 +16,9 @@ src/server/recordings/
 # 临时调试音频
 *.mp3
 listen_rec*.mp3
+*.wav
+*.pcm
+
+# Go 编译产物（go build 留下的二进制）
+src/server/server
+src/server/asr-server
