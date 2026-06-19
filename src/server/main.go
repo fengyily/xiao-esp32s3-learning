@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -272,17 +273,35 @@ func main() {
 				}
 				tStart := time.Now()
 				firstDelta := time.Duration(-1)
+				var full strings.Builder // 累积整句译文，供整句说完后合成 TTS
 				err := ds.streamWithSystem(sys, text, func(delta string) {
 					if firstDelta < 0 {
 						firstDelta = time.Since(tStart)
 					}
 					delta = strings.ReplaceAll(delta, "\n", " ")
+					full.WriteString(delta)
 					writeLine("D:" + delta + "\n")
 				})
 				if err != nil {
 					writeLine("D:[翻译出错]\n")
 				}
 				writeLine("E\n")
+
+				// 整句译文合成 TTS（16k/16bit/单声道 PCM）→ 以 P:<字节数>\n + 原始 PCM 回传板子。
+				// 放在 E 之后：板子先收完文本再收音频，解析简单。合成失败不影响文本链路。
+				if translated := strings.TrimSpace(full.String()); translated != "" {
+					tTTS := time.Now()
+					if pcm, terr := asr.Synthesize(translated); terr != nil {
+						log.Printf("[ws] TTS 失败: %v", terr)
+					} else {
+						writeLine(fmt.Sprintf("P:%d\n", len(pcm)))
+						w.Write(pcm)
+						if flusher != nil {
+							flusher.Flush()
+						}
+						log.Printf("[ws] TTS %d 字节 用时 %dms", len(pcm), time.Since(tTTS).Milliseconds())
+					}
+				}
 				log.Printf("[ws] 句子 %q | 翻译首字 %dms 整句 %dms",
 					text, firstDelta.Milliseconds(), time.Since(tStart).Milliseconds())
 			}
