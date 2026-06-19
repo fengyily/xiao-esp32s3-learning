@@ -1,94 +1,138 @@
-# XIAO ESP32-S3 Sense 学习项目
+# XIAO ESP32-S3 Sense：从 0 到精通的嵌入式学习之路
 
-从 0 基础起步，用一个个能跑起来、看得见效果的 Demo 学嵌入式开发，
-最终做出一个**口袋里的 AI 语音助手 / 实时翻译机**。
+这不是一个成品仓库，而是一条**学习路线**：从完全 0 基础起步，用一个个能烧进板子、
+看得见效果的小 Demo，一步步把嵌入式开发吃透——从点亮一颗 LED，一直走到
+做出一个**口袋里的 AI 语音助手 / 实时翻译机**。
 
-**当前进度**：基础/联网/语音全部跑通（Demo 1-15）。实时翻译已达"边说边译"，
-说完一句约 0.7-1.3s 出译文。差最后"语音播报"一环（等 MAX98357A 喇叭到货）。
+核心思路只有一句：**每一步都比上一步多懂一点，且每一步都能跑起来。**
+不堆理论、不抄大工程，每个 Demo 只引入一两个新概念，亲手踩坑、亲眼看到效果，再走下一步。
 
+> **现在走到哪了**：基础 → 外设 → 联网 → 语音全部跑通（Demo 1–16）。
+> 实时翻译已做到"边说边译"，说完一句约 0.7–1.3s 出译文，译文还能用喇叭播报出来。
+>
 > 配套文档：
-> - [LEARNING_PLAN.md](LEARNING_PLAN.md) — 完整学习路线、进度日志、踩过的坑
+>
+> - [LEARNING_PLAN.md](LEARNING_PLAN.md) — 完整学习路线、每日进度日志、踩过的每一个坑
 > - [DIALOGUE_PLAN.md](DIALOGUE_PLAN.md) — 语音助手的架构设计与分阶段实现
-> - [src/server/README.md](src/server/README.md) — Go 中转服务说明
+> - [src/server/README.md](src/server/README.md) — 语音功能用到的 Go 中转服务说明
 
-## 硬件
+---
 
-**Seeed XIAO ESP32-S3 Sense** —— 指甲盖大小，但很全：
+## 怎么用这个仓库学
 
-- ESP32-S3 双核 + WiFi/BLE，8MB PSRAM + 8MB Flash
-- OV2640 摄像头、PDM 数字麦克风、SD 卡槽
-- 板载橙色 LED：接 **GPIO21**，**低电平点亮**（写 `LOW` 才亮，常见坑）
+每个 Demo 是一个**独立可烧录**的程序，对应 [platformio.ini](platformio.ini) 里的一个 `[env:demoNN]`。
+按顺序往下走，每个 Demo 烧进板子、看到效果、读一遍它的代码和注释，就掌握了那一步的知识点。
 
-## 环境准备
+```bash
+# PATH 里要有 pio（按需把这行加进 ~/.zshrc）
+export PATH="$PATH:$HOME/.platformio/penv/bin"
+
+pio run -e demo01 -t upload      # 编译 + 烧录第 1 个 demo
+pio device monitor               # 看串口输出（波特率 115200）
+```
+
+涉及 WiFi / 语音的 Demo 需要先配密钥（都已 gitignore，不会上传）：
+
+```bash
+cp src/demo07/secrets.h.example src/demo07/secrets.h   # 填 WiFi 和服务地址
+```
 
 需要 [PlatformIO](https://platformio.org/)（VS Code 插件或 CLI）。
 
-```bash
-# PATH 里要有 pio（按需加进 ~/.zshrc）
-export PATH="$PATH:$HOME/.platformio/penv/bin"
+---
 
-pio run -e demo01 -t upload      # 编译 + 烧录某个 demo
-pio device monitor               # 看串口输出（115200）
-```
+## 先认识这块板子
 
-涉及 WiFi 的 demo 需要配 `secrets.h`：
+**Seeed XIAO ESP32-S3 Sense** —— 指甲盖大小，但麻雀虽小五脏俱全：
 
-```bash
-cp src/demo07/secrets.h.example src/demo07/secrets.h   # 填入你的 WiFi 和服务地址
-```
+- **ESP32-S3 双核** + WiFi/BLE，**8MB PSRAM + 8MB Flash**（内存大，跑得动摄像头和 AI）
+- **OV2640 摄像头** —— 拍照、视频流、图像识别
+- **PDM 数字麦克风** —— 录音、语音识别
+- **SD 卡槽** —— 存照片、录音、日志
+- **板载橙色 LED** —— 接 **GPIO21**，**低电平点亮**（写 `LOW` 才亮，第一个坑）
 
-> `secrets.h`、`.env`、录音、照片都在 [.gitignore](.gitignore) 里，不会上传。
+它最大的价值是 **摄像头 + 麦克风 + 算力**，所以这条学习路线最终会走向"边缘 AI / 语音"。
 
-## Demo 一览
+---
 
-每个 demo 是一个独立可烧录的程序，对应 `platformio.ini` 里的一个 `[env:demoNN]`，
-用 `pio run -e demoNN -t upload` 烧录。
+## 学习路线：每一步学什么、为什么是这一步
 
-### 基础（输入输出、外设）
+路线分四个阶段，由易到难、由独立外设到系统整合。下面每一格不只是"做了什么"，
+更是"这一步在整条路上补上了哪块拼图"。
 
-| Demo | 内容 |
-|---|---|
-| 01 | Blink 闪灯 —— GPIO、`setup`/`loop` |
-| 02 | 串口对话 —— `Serial` 调试 |
-| 03 | 按钮输入 —— 上拉、消抖、下降沿（D1↔GND 模拟按钮）|
-| 04 | PWM 呼吸灯 —— LEDC 调亮度 |
-| 05 | 读麦克风音量 —— I2S/PDM 采集 + 串口音量条 |
-| 06 | 摄像头拍照存 SD 卡 —— OV2640 + SPI SD（CS=21）|
+### 阶段一 · 基础：跑通工具链，掌握输入输出
 
-### 联网
+先把"写代码 → 烧录 → 看效果"这个最基本的循环跑顺，再理解最底层的数字 IO。
 
-| Demo | 内容 |
-|---|---|
-| 07 | 连 WiFi + NTP 网络对时 |
-| 08 | 网页看摄像头实时画面 —— MJPEG 视频流 |
-| 100 | SD 卡读写测试（SPI 方式，用来排查 Demo 6 的挂载问题）|
+| Demo | 学到的核心概念 | 效果 |
+|---|---|---|
+| **01 Blink 闪灯** | 烧录流程、GPIO、`setup()`/`loop()`、`digitalWrite`/`delay` | LED 每秒闪一次 |
+| **02 串口对话** | `Serial` —— 之后最重要的调试工具 | 板子每秒往电脑打印一行 |
+| **03 按钮输入** | 上拉输入、按键消抖、下降沿检测 | 按一下（D1↔GND 模拟）翻转 LED |
+| **04 PWM 呼吸灯** | 模拟输出、LEDC 三步、占空比 | LED 平滑由暗到亮再变暗 |
 
-### 语音助手 / 实时翻译（核心）
+### 阶段二 · 传感与外设：用上这块板的特色硬件
 
-板子算力跑不动 ASR/LLM，且阿里云签名在 ESP32 难写，所以加一层 **Go 中转服务**：
-板子只录音/收文字，签名鉴权、识别、对话翻译全在 Go 端（密钥也只留服务端）。
+从"控制一个引脚"升级到"驱动真实外设"——麦克风、摄像头、SD 卡，为后面的语音/影像打地基。
+
+| Demo | 学到的核心概念 | 效果 |
+|---|---|---|
+| **05 读麦克风音量** | I2S/PDM 数字麦克风采集（CLK=42, DATA=41） | 对着说话，串口音量条跟着跳 |
+| **06 摄像头拍照存 SD** | 摄像头初始化、PSRAM、抓帧/归还、SPI 存卡 | 按一下拍一张 UXGA JPEG 进 SD 卡 |
+| **100 SD 卡读写测试** | `SD.begin(CS)` SPI 挂载、文件读写/测速 | （排查 Demo 6 挂载失败用的对照实验） |
+
+> Demo 100 编号在后面，但它其实是 Demo 6 卡住时拿来排查"接口选错"的工具——
+> 学习路上的弯路也是路，留着提醒"挂载失败先怀疑接口/引脚选型"。
+
+### 阶段三 · 联网：让板子上网
+
+板子接上互联网，从一个孤立的小玩具变成能借助云端算力的节点——这是走向 AI 的前提。
+
+| Demo | 学到的核心概念 | 效果 |
+|---|---|---|
+| **07 连 WiFi + NTP 对时** | `WiFi.begin` 轮询、`configTime` NTP、`secrets.h` 隔离密码 | 连上 WiFi，串口打印准确时间 |
+| **08 网页看摄像头画面** | `WebServer` 路由、MJPEG 视频流、摄像头+WiFi 合体 | 浏览器输入板子 IP 看实时画面 |
+
+### 阶段四 · 语音助手 / 实时翻译（核心目标）
+
+把前面所有积累——麦克风采集、联网、Web 通信——整合成一个真正的产品形态。
+板子算力跑不动 ASR/LLM，且阿里云签名在 ESP32 上难写，所以加一层 **Go 中转服务**：
+板子只负责录音、收文字/音频，签名鉴权、识别、对话翻译、语音合成全在 Go 端（密钥也只留服务端）。
 
 ```text
-                         实时识别(WebSocket)        流式翻译
+                         实时识别(WebSocket)        流式翻译/合成
  [板子 ESP32-S3]            ┌──────────┐          ┌──────────┐
   录音 ──PCM流(chunked)──▶ │ Go 中转  │ ──音频──▶│ 阿里云ASR │
-  状态灯/串口显示  ◀─T/D/E─ │  服务    │ ◀─句子── └──────────┘
-                          │          │ ──文字──▶┌──────────┐
+  喇叭播报 ◀──译文音频──── │  服务    │ ◀─句子── └──────────┘
+  状态灯/串口  ◀──T/D/E─── │          │ ──文字──▶┌──────────┐
                           └──────────┘ ◀─译文增量│ DeepSeek │
                                                  └──────────┘
 ```
 
-| Demo | 内容 |
+这一阶段是逐步迭代出来的，能清楚看到"一个真实功能是如何一版版打磨成型"的：
+
+| Demo | 在上一版基础上多解决了什么 |
 |---|---|
-| 11 | 语音转文字 + DeepSeek 对话 —— 声控触发、原生 PDM、VAD、免提语音助手 |
-| 12 | 实时中英互译 —— 说话→识别→翻译→打印译文 |
-| 13 | **全双工对话** —— FreeRTOS 双任务边听边处理（半句不丢）+ 会话上下文记忆 |
-| 14 | **全双工流式翻译** —— 双任务 + DeepSeek 流式输出（译文打字机式）|
-| 15 | **流式实时翻译** —— 阿里云实时识别(WebSocket)自动断句，真·边说边译；带 WiFi 退避重连 + 状态灯 |
+| **11 语音转文字 + 对话** | 打通"录音→上传→识别→DeepSeek 对话"全链路；声控触发 + 原生 PDM 修音质 + VAD，做成免提助手 |
+| **12 实时中英互译** | 把对话换成翻译：说话→识别→翻译→打印译文，自动判中↔英 |
+| **13 全双工对话** | FreeRTOS 双任务"边听边处理"（半句不丢）+ 会话上下文记忆 |
+| **14 全双工流式翻译** | 在 13 基础上让 DeepSeek **流式**输出，译文打字机式逐字蹦出 |
+| **15 流式实时翻译** | 改用阿里云**实时识别**(WebSocket)自动断句，真·边说边译；带 WiFi 退避重连 + 状态灯 |
+| **16 喇叭播报** | 译文经 TTS 合成后用 **MAX98357A 喇叭**播出来，闭环成型 |
 
-> `diag` / `micdiag` / `micrec` 是诊断小程序（引脚损坏排查、采样率实测、纯录音测试）。
+> `diag` / `micdiag` / `micrec` 是诊断小程序（引脚损坏排查、采样率实测、纯录音测试）——
+> 调试过程中顺手攒下的工具，不在主线但很有用。
 
-## 跑通语音翻译（Demo 15）
+### 还没走到的下一步
+
+- **边缘图像识别** —— 在板子本地跑轻量模型（TFLite Micro / Edge Impulse）做物体识别，
+  让 AI 从"靠云端"走向"在板上"，这是边缘 AI 的终点。
+
+---
+
+## 快速跑通核心成果（语音翻译，Demo 15/16）
+
+想直接看最终效果，按这三步：
 
 1. **起 Go 服务**（需阿里云 + DeepSeek 密钥，见 [src/server/README.md](src/server/README.md)）：
    ```bash
@@ -96,30 +140,36 @@ cp src/demo07/secrets.h.example src/demo07/secrets.h   # 填入你的 WiFi 和�
    set -a && source .env && set +a && go run .
    ```
 2. **配板子**：`cp src/demo07/secrets.h.example src/demo07/secrets.h`，
-   填 WiFi 和 `SERVER_URL`（你跑 Go 服务那台机器的局域网 IP，如 `http://192.168.x.x:8090/chat`）。
+   填 WiFi 和 `SERVER_URL`（跑 Go 服务那台机器的局域网 IP，如 `http://192.168.x.x:8090/chat`）。
 3. **烧录**：`pio run -e demo15 -t upload`，开串口对着板子说话。
 
 **状态灯**（板载单灯）：慢闪=连 WiFi｜暗亮=就绪｜随音量变亮=正在听｜快闪=出错。
 
-## 我踩过的坑
+---
 
-详见 [LEARNING_PLAN.md 的"我学到的坑"](LEARNING_PLAN.md#我学到的坑随手记)。几个高频的：
+## 路上踩过的高频坑
 
-- 板载 LED **低电平点亮**，PWM 调亮度时 duty 要反着写。
+学习的价值一半在踩坑。完整记录见 [LEARNING_PLAN.md 的"我学到的坑"](LEARNING_PLAN.md#我学到的坑随手记)，几个最高频的：
+
+- 板载 LED **低电平点亮**，PWM 调亮度时 duty 要反着写（`255 - b`）。
 - ESP32-S3 **只支持 2.4G WiFi**。
 - PDM 录音又闷又糊 → 用原生 `driver/i2s.h` + `i2s_set_pdm_rx_down_sample`，别用旧 Arduino I2S 库。
-- VAD 判静音用**峰峰值**(max-min)，别用平均量（PDM 有直流偏置，平均量恒高）。
+- VAD 判静音用**峰峰值**(max−min)，别用平均量（PDM 有直流偏置，平均量恒高）。
 - **WiFiClient/lwIP 不是线程安全**：一个 socket 不能两个任务同时读写，会崩 `pbuf_free`。
-- 实时翻译断句靠阿里云 `max_sentence_silence`（400ms 实测合适），别用固定时长切片切碎单词。
+- 实时翻译断句靠阿里云 `max_sentence_silence`（实测 400ms 合适），别用固定时长切片切碎单词。
+
+---
 
 ## 目录结构
 
 ```text
 src/
-  demo01../demo15/   各 demo 的 main.cpp
-  demo100/           SD 卡测试
-  diag/ micdiag/ micrec/   诊断程序
-  server/            Go 中转服务（ASR + DeepSeek）
-tools/recv_photo.py  串口 dump 照片的解码脚本
-platformio.ini       多 demo 构建配置
+  demo01../demo16/       各 demo 的 main.cpp（按学习路线编号）
+  demo100/               SD 卡测试（排查 Demo 6 的对照实验）
+  diag/ micdiag/ micrec/ 诊断程序
+  server/                语音功能的 Go 中转服务（ASR + DeepSeek + TTS）
+tools/recv_photo.py      串口 dump 照片的解码脚本
+platformio.ini           多 demo 构建配置（每个 demo 一个 env）
+LEARNING_PLAN.md         学习路线 + 进度日志 + 踩坑记录
+DIALOGUE_PLAN.md         语音助手架构设计
 ```
